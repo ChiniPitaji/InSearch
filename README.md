@@ -10,7 +10,7 @@ This first version is only a landing page. There is no login, no database, and n
 2. Go into the project folder:
 
 ```bash
-cd /Users/jyotikumari/Downloads/student-job-platform
+cd /your_file_location/student-job-platform
 ```
 
 3. Start the website:

@@ -18,12 +18,31 @@ type Job = {
   created_at: string;
 };
 
+type Candidate = {
+  application_id: string;
+  job_id: string;
+  student_id: string;
+  status: "applied" | "shortlisted" | "rejected" | "selected";
+  applied_at: string;
+
+  student_name: string;
+  college_name: string | null;
+  degree: string | null;
+  branch: string | null;
+  cgpa: number | null;
+  location: string | null;
+  skills: string[];
+};
+
 export default function CompanyDashboard() {
   const supabase = createClient();
 
   const [companyName, setCompanyName] = useState("");
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+
   const [loading, setLoading] = useState(true);
+  const [loadingCandidates, setLoadingCandidates] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -79,7 +98,120 @@ export default function CompanyDashboard() {
       setJobs(jobsData || []);
     }
 
+    await loadCandidates();
+
     setLoading(false);
+  }
+
+  async function loadCandidates() {
+    setLoadingCandidates(true);
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      setLoadingCandidates(false);
+      return;
+    }
+
+    // Get company's own jobs
+    const { data: companyJobs, error: jobsError } = await supabase
+      .from("jobs")
+      .select("id")
+      .eq("created_by", user.id);
+
+    if (jobsError) {
+      console.error(jobsError);
+      setLoadingCandidates(false);
+      return;
+    }
+
+    const jobIds = (companyJobs || []).map((job) => job.id);
+
+    if (jobIds.length === 0) {
+      setCandidates([]);
+      setLoadingCandidates(false);
+      return;
+    }
+
+    // Get applications for those jobs
+    const { data: applicationData, error: applicationError } = await supabase
+      .from("applications")
+      .select("id, job_id, student_id, status, applied_at")
+      .in("job_id", jobIds)
+      .order("applied_at", { ascending: false });
+
+    if (applicationError) {
+      console.error(applicationError);
+      setCandidates([]);
+      setLoadingCandidates(false);
+      return;
+    }
+
+    const applications = applicationData || [];
+
+    if (applications.length === 0) {
+      setCandidates([]);
+      setLoadingCandidates(false);
+      return;
+    }
+
+    const studentIds = [
+      ...new Set(applications.map((application) => application.student_id)),
+    ];
+
+    // Get basic student profiles
+    const { data: studentData, error: studentError } = await supabase
+      .from("student_profiles")
+      .select("id, college_name, degree, branch, cgpa, location, skills")
+      .in("id", studentIds);
+
+    if (studentError) {
+      console.error(studentError);
+    }
+
+    // Get student names
+    const { data: profileData, error: profileError } = await supabase
+      .from("profiles")
+      .select("id, full_name")
+      .in("id", studentIds);
+
+    if (profileError) {
+      console.error(profileError);
+    }
+
+    const studentProfiles = studentData || [];
+    const profiles = profileData || [];
+
+    const candidateList: Candidate[] = applications.map((application) => {
+      const studentProfile = studentProfiles.find(
+        (student) => student.id === application.student_id
+      );
+
+      const student = profiles.find(
+        (profile) => profile.id === application.student_id
+      );
+
+      return {
+        application_id: application.id,
+        job_id: application.job_id,
+        student_id: application.student_id,
+        status: application.status,
+        applied_at: application.applied_at,
+
+        student_name: student?.full_name || "Student",
+        college_name: studentProfile?.college_name || null,
+        degree: studentProfile?.degree || null,
+        branch: studentProfile?.branch || null,
+        cgpa: studentProfile?.cgpa || null,
+        location: studentProfile?.location || null,
+        skills: studentProfile?.skills || [],
+      };
+    });
+
+    setCandidates(candidateList);
+    setLoadingCandidates(false);
   }
 
   async function handleCreateJob(e: FormEvent) {
@@ -138,9 +270,65 @@ export default function CompanyDashboard() {
     setSaving(false);
   }
 
+  async function handleStatusChange(
+    applicationId: string,
+    newStatus: Candidate["status"]
+  ) {
+    const { error } = await supabase
+      .from("applications")
+      .update({
+        status: newStatus,
+      })
+      .eq("id", applicationId);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setCandidates((currentCandidates) =>
+      currentCandidates.map((candidate) =>
+        candidate.application_id === applicationId
+          ? {
+              ...candidate,
+              status: newStatus,
+            }
+          : candidate
+      )
+    );
+  }
+
   async function handleLogout() {
     await supabase.auth.signOut();
     window.location.href = "/auth";
+  }
+
+  function getStatusClass(status: Candidate["status"]) {
+    if (status === "selected") {
+      return "bg-green-100 text-green-700";
+    }
+
+    if (status === "shortlisted") {
+      return "bg-blue-100 text-blue-700";
+    }
+
+    if (status === "rejected") {
+      return "bg-red-100 text-red-700";
+    }
+
+    return "bg-yellow-100 text-yellow-700";
+  }
+
+  function getJobTitle(jobId: string) {
+    return jobs.find((job) => job.id === jobId)?.title || "Job";
+  }
+
+  function formatDate(date: string) {
+    return new Date(date).toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
   }
 
   if (loading) {
@@ -156,14 +344,10 @@ export default function CompanyDashboard() {
       {/* Header */}
       <header className="border-b bg-white">
         <div className="flex h-16 items-center justify-between px-6">
-          <h1 className="text-2xl font-bold text-gray-900">
-            CampusBridge
-          </h1>
+          <h1 className="text-2xl font-bold text-gray-900">CampusBridge</h1>
 
           <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-600">
-              {companyName}
-            </span>
+            <span className="text-sm text-gray-600">{companyName}</span>
 
             <button
               onClick={handleLogout}
@@ -238,7 +422,7 @@ export default function CompanyDashboard() {
 
             <div className="rounded-2xl bg-white p-6 shadow-sm">
               <p className="text-sm text-gray-500">Candidates</p>
-              <p className="mt-2 text-3xl font-bold">0</p>
+              <p className="mt-2 text-3xl font-bold">{candidates.length}</p>
             </div>
           </div>
 
@@ -255,10 +439,7 @@ export default function CompanyDashboard() {
               Create an internship or full-time opportunity for students.
             </p>
 
-            <form
-              onSubmit={handleCreateJob}
-              className="mt-8 space-y-6"
-            >
+            <form onSubmit={handleCreateJob} className="mt-8 space-y-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700">
                   Job Title
@@ -312,9 +493,7 @@ export default function CompanyDashboard() {
                   <select
                     value={jobType}
                     onChange={(e) =>
-                      setJobType(
-                        e.target.value as "internship" | "full-time"
-                      )
+                      setJobType(e.target.value as "internship" | "full-time")
                     }
                     className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-4 py-3 outline-none focus:border-black"
                   >
@@ -426,9 +605,7 @@ export default function CompanyDashboard() {
             id="my-jobs"
             className="mt-8 rounded-2xl bg-white p-6 shadow-sm md:p-8"
           >
-            <h3 className="text-2xl font-semibold text-gray-900">
-              My Jobs
-            </h3>
+            <h3 className="text-2xl font-semibold text-gray-900">My Jobs</h3>
 
             {jobs.length === 0 ? (
               <div className="mt-5 rounded-xl border border-dashed border-gray-300 p-8 text-center">
@@ -457,9 +634,7 @@ export default function CompanyDashboard() {
                           {job.job_type === "internship"
                             ? "Internship"
                             : "Full-time"}
-                          {job.location
-                            ? ` • ${job.location}`
-                            : ""}
+                          {job.location ? ` • ${job.location}` : ""}
                         </p>
                       </div>
 
@@ -490,25 +665,148 @@ export default function CompanyDashboard() {
             )}
           </div>
 
-          {/* Candidates Placeholder */}
+          {/* Candidates */}
           <div
             id="candidates"
             className="mt-8 rounded-2xl bg-white p-6 shadow-sm md:p-8"
           >
-            <h3 className="text-2xl font-semibold text-gray-900">
-              Candidates
-            </h3>
+            <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+              <div>
+                <h3 className="text-2xl font-semibold text-gray-900">
+                  Candidates
+                </h3>
 
-            <div className="mt-5 rounded-xl border border-dashed border-gray-300 p-8 text-center">
-              <p className="font-medium text-gray-700">
-                Candidate search is coming next.
-              </p>
+                <p className="mt-2 text-sm text-gray-500">
+                  Students who have applied to your jobs.
+                </p>
+              </div>
 
-              <p className="mt-2 text-sm text-gray-500">
-                Soon you will be able to search students by skills,
-                college, CGPA and experience.
-              </p>
+              <span className="w-fit rounded-full bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700">
+                {candidates.length}{" "}
+                {candidates.length === 1 ? "Candidate" : "Candidates"}
+              </span>
             </div>
+
+            {loadingCandidates ? (
+              <div className="mt-6 rounded-xl border border-dashed border-gray-300 p-8 text-center">
+                <p className="text-gray-500">Loading candidates...</p>
+              </div>
+            ) : candidates.length === 0 ? (
+              <div className="mt-6 rounded-xl border border-dashed border-gray-300 p-8 text-center">
+                <p className="font-medium text-gray-700">No candidates yet</p>
+
+                <p className="mt-2 text-sm text-gray-500">
+                  Students who apply to your jobs will appear here.
+                </p>
+              </div>
+            ) : (
+              <div className="mt-6 space-y-5">
+                {candidates.map((candidate) => (
+                  <div
+                    key={candidate.application_id}
+                    className="rounded-xl border border-gray-200 p-5"
+                  >
+                    <div className="flex flex-col justify-between gap-4 md:flex-row">
+                      <div>
+                        <h4 className="text-xl font-bold text-gray-900">
+                          {candidate.student_name}
+                        </h4>
+
+                        <p className="mt-1 text-sm font-medium text-gray-600">
+                          Applied for: {getJobTitle(candidate.job_id)}
+                        </p>
+                      </div>
+
+                      <span
+                        className={`h-fit w-fit rounded-full px-3 py-1 text-sm font-semibold capitalize ${getStatusClass(
+                          candidate.status
+                        )}`}
+                      >
+                        {candidate.status}
+                      </span>
+                    </div>
+
+                    <div className="mt-5 grid gap-3 text-sm text-gray-600 md:grid-cols-2">
+                      {candidate.college_name && (
+                        <p>
+                          🎓 <strong>College:</strong> {candidate.college_name}
+                        </p>
+                      )}
+
+                      {candidate.degree && (
+                        <p>
+                          📚 <strong>Degree:</strong> {candidate.degree}
+                        </p>
+                      )}
+
+                      {candidate.branch && (
+                        <p>
+                          💻 <strong>Branch:</strong> {candidate.branch}
+                        </p>
+                      )}
+
+                      {candidate.cgpa !== null && (
+                        <p>
+                          ⭐ <strong>CGPA:</strong> {candidate.cgpa}
+                        </p>
+                      )}
+
+                      {candidate.location && (
+                        <p>
+                          📍 <strong>Location:</strong> {candidate.location}
+                        </p>
+                      )}
+
+                      <p>
+                        📅 <strong>Applied:</strong>{" "}
+                        {formatDate(candidate.applied_at)}
+                      </p>
+                    </div>
+
+                    {candidate.skills.length > 0 && (
+                      <div className="mt-5">
+                        <p className="mb-2 text-sm font-medium text-gray-700">
+                          Skills
+                        </p>
+
+                        <div className="flex flex-wrap gap-2">
+                          {candidate.skills.map((skill) => (
+                            <span
+                              key={skill}
+                              className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700"
+                            >
+                              {skill}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center">
+                      <label className="text-sm font-medium text-gray-700">
+                        Application Status:
+                      </label>
+
+                      <select
+                        value={candidate.status}
+                        onChange={(e) =>
+                          handleStatusChange(
+                            candidate.application_id,
+                            e.target.value as Candidate["status"]
+                          )
+                        }
+                        className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm outline-none focus:border-black"
+                      >
+                        <option value="applied">Applied</option>
+                        <option value="shortlisted">Shortlisted</option>
+                        <option value="rejected">Rejected</option>
+                        <option value="selected">Selected</option>
+                      </select>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </section>
       </div>

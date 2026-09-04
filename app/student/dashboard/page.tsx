@@ -24,8 +24,9 @@ export default function StudentDashboard() {
   const supabase = createClient();
 
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [studentProfile, setStudentProfile] =
-    useState<StudentProfile | null>(null);
+  const [studentProfile, setStudentProfile] = useState<StudentProfile | null>(
+    null
+  );
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -82,27 +83,21 @@ export default function StudentDashboard() {
     studentProfile?.branch,
     studentProfile?.graduation_year,
     studentProfile?.cgpa,
-    studentProfile?.skills?.length
-      ? studentProfile.skills.join(", ")
-      : null,
+    studentProfile?.skills?.length ? studentProfile.skills.join(", ") : null,
   ];
 
   const completedFields = fields.filter(
     (field) => field !== null && field !== undefined && field !== ""
   ).length;
 
-  const profileCompletion = Math.round(
-    (completedFields / fields.length) * 100
-  );
+  const profileCompletion = Math.round((completedFields / fields.length) * 100);
 
   return (
     <main className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="border-b bg-white">
         <div className="flex h-16 items-center justify-between px-6">
-          <h1 className="text-2xl font-bold text-gray-900">
-            CampusBridge
-          </h1>
+          <h1 className="text-2xl font-bold text-gray-900">CampusBridge</h1>
 
           <div className="flex items-center gap-4">
             <span className="text-sm text-gray-600">
@@ -138,14 +133,14 @@ export default function StudentDashboard() {
             </a>
 
             <a
-              href="#jobs"
+              href="/student/jobs"
               className="block rounded-lg px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-100"
             >
               Find Jobs
             </a>
 
             <a
-              href="#applications"
+              href="/student/applications"
               className="block rounded-lg px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-100"
             >
               Applications
@@ -226,13 +221,19 @@ export default function StudentDashboard() {
           </div>
 
           {/* Recommended Jobs */}
-          <div
-            id="jobs"
-            className="mt-8 rounded-2xl bg-white p-6 shadow-sm"
-          >
-            <h3 className="text-xl font-semibold text-gray-900">
-              Recommended Jobs
-            </h3>
+          <div id="jobs" className="mt-8 rounded-2xl bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-semibold text-gray-900">
+                Recommended Jobs
+              </h3>
+
+              <a
+                href="/student/jobs"
+                className="text-sm font-semibold text-black hover:underline"
+              >
+                Find Jobs →
+              </a>
+            </div>
 
             <div className="mt-5 rounded-xl border border-dashed border-gray-300 p-8 text-center">
               <p className="font-medium text-gray-700">
@@ -251,34 +252,43 @@ export default function StudentDashboard() {
             id="applications"
             className="mt-8 rounded-2xl bg-white p-6 shadow-sm"
           >
-            <h3 className="text-xl font-semibold text-gray-900">
-              Recent Applications
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-semibold text-gray-900">
+                Recent Applications
+              </h3>
+
+              <a
+                href="/student/applications"
+                className="text-sm font-semibold text-black hover:underline"
+              >
+                View All →
+              </a>
+            </div>
 
             <div className="mt-5 rounded-xl border border-dashed border-gray-300 p-8 text-center">
               <p className="font-medium text-gray-700">
-                No applications yet
+                View your applications
               </p>
 
               <p className="mt-2 text-sm text-gray-500">
-                Your job applications will appear here.
+                Track the status of jobs and internships you have applied for.
               </p>
+
+              <a
+                href="/student/applications"
+                className="mt-5 inline-block rounded-lg bg-black px-5 py-3 text-sm font-semibold text-white hover:bg-gray-800"
+              >
+                View Applications
+              </a>
             </div>
           </div>
 
           {/* Saved Jobs */}
-          <div
-            id="saved"
-            className="mt-8 rounded-2xl bg-white p-6 shadow-sm"
-          >
-            <h3 className="text-xl font-semibold text-gray-900">
-              Saved Jobs
-            </h3>
+          <div id="saved" className="mt-8 rounded-2xl bg-white p-6 shadow-sm">
+            <h3 className="text-xl font-semibold text-gray-900">Saved Jobs</h3>
 
             <div className="mt-5 rounded-xl border border-dashed border-gray-300 p-8 text-center">
-              <p className="font-medium text-gray-700">
-                No saved jobs
-              </p>
+              <p className="font-medium text-gray-700">No saved jobs</p>
 
               <p className="mt-2 text-sm text-gray-500">
                 Jobs you save will appear here.

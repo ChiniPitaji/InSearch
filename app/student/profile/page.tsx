@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 export default function StudentProfilePage() {
@@ -12,11 +12,72 @@ export default function StudentProfilePage() {
   const [graduationYear, setGraduationYear] = useState("");
   const [cgpa, setCgpa] = useState("");
   const [skills, setSkills] = useState("");
+  
+  // New "Open to Recruiters" states
+  const [openToRecruiters, setOpenToRecruiters] = useState(false);
+  const [isMigrationRequired, setIsMigrationRequired] = useState(false);
 
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(true);
 
   const supabase = createClient();
+
+  useEffect(() => {
+    async function loadProfile() {
+      setProfileLoading(true);
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        setProfileLoading(false);
+        return;
+      }
+
+      // Try fetching with open_to_recruiters
+      const { data, error } = await supabase
+        .from("student_profiles")
+        .select("phone, location, college_name, degree, branch, graduation_year, cgpa, skills, open_to_recruiters")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (error) {
+        // If PGRST111 / 42703 error (column does not exist) or similar message, fallback
+        if (error.code === "42703" || error.message.includes("open_to_recruiters")) {
+          setIsMigrationRequired(true);
+          const { data: fallbackData, error: fallbackError } = await supabase
+            .from("student_profiles")
+            .select("phone, location, college_name, degree, branch, graduation_year, cgpa, skills")
+            .eq("id", user.id)
+            .maybeSingle();
+
+          if (!fallbackError && fallbackData) {
+            populateFields(fallbackData);
+          }
+        } else {
+          console.error("Error loading profile:", error.message);
+        }
+      } else if (data) {
+        populateFields(data);
+        setOpenToRecruiters(!!data.open_to_recruiters);
+      }
+      setProfileLoading(false);
+    }
+
+    function populateFields(data: any) {
+      setPhone(data.phone || "");
+      setLocation(data.location || "");
+      setCollegeName(data.college_name || "");
+      setDegree(data.degree || "");
+      setBranch(data.branch || "");
+      setGraduationYear(data.graduation_year ? String(data.graduation_year) : "");
+      setCgpa(data.cgpa ? String(data.cgpa) : "");
+      setSkills(data.skills ? data.skills.join(", ") : "");
+    }
+
+    loadProfile();
+  }, [supabase]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -39,7 +100,7 @@ export default function StudentProfilePage() {
       .map((skill) => skill.trim())
       .filter((skill) => skill.length > 0);
 
-    const { error } = await supabase.from("student_profiles").upsert({
+    const payload: any = {
       id: user.id,
       phone,
       location,
@@ -50,15 +111,44 @@ export default function StudentProfilePage() {
       cgpa: cgpa ? Number(cgpa) : null,
       skills: skillList,
       updated_at: new Date().toISOString(),
-    });
+    };
+
+    // Only include open_to_recruiters if database column exists
+    if (!isMigrationRequired) {
+      payload.open_to_recruiters = openToRecruiters;
+    }
+
+    const { error } = await supabase.from("student_profiles").upsert(payload);
 
     if (error) {
-      setMessage(error.message);
+      if (error.code === "42703" || error.message.includes("open_to_recruiters")) {
+        setIsMigrationRequired(true);
+        // Retry saving without open_to_recruiters column so the rest of the profile isn't blocked
+        delete payload.open_to_recruiters;
+        const { error: retryError } = await supabase.from("student_profiles").upsert(payload);
+        if (retryError) {
+          setMessage(retryError.message);
+        } else {
+          setMessage("Profile saved (except for 'Open to Recruiters' which requires a SQL migration). 🎉");
+        }
+      } else {
+        setMessage(error.message);
+      }
     } else {
       setMessage("Profile saved successfully! 🎉");
     }
 
     setLoading(false);
+  }
+
+  if (profileLoading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <p className="text-gray-500">Loading your profile...</p>
+        </div>
+      </main>
+    );
   }
 
   return (
@@ -222,6 +312,32 @@ export default function StudentProfilePage() {
               <p className="mt-2 text-sm text-gray-500">
                 Separate multiple skills with commas.
               </p>
+            </section>
+
+            {/* Visibility */}
+            <section>
+              <h2 className="mb-4 text-xl font-semibold text-gray-900">
+                Visibility
+              </h2>
+
+              <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-300 p-4">
+                <input
+                  type="checkbox"
+                  checked={openToRecruiters}
+                  onChange={(e) => setOpenToRecruiters(e.target.checked)}
+                  className="mt-1 h-4 w-4 rounded border-gray-300 text-black focus:ring-black"
+                />
+
+                <span>
+                  <span className="block text-sm font-medium text-gray-700">
+                    Open to Recruiters
+                  </span>
+
+                  <span className="mt-1 block text-sm text-gray-500">
+                    Allow verified companies to discover your profile in candidate search.
+                  </span>
+                </span>
+              </label>
             </section>
 
             <button

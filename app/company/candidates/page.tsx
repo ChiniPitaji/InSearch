@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -318,6 +319,13 @@ export default function FindCandidatesPage() {
                     </div>
                   </div>
                 )}
+
+                <Link
+                  href={`/company/candidates/${candidate.id}`}
+                  className="mt-6 inline-block rounded-lg bg-black px-5 py-3 text-sm font-semibold text-white hover:bg-gray-800"
+                >
+                  View Profile
+                </Link>
               </article>
             ))}
           </div>

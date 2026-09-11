@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { calculateJobMatch } from "@/lib/matching";
 
 type Job = {
   id: string;
@@ -18,69 +20,85 @@ type Job = {
   application_deadline: string | null;
 };
 
+type StudentProfile = {
+  skills: string[] | null;
+  cgpa: number | null;
+};
+
 export default function JobDetailsPage() {
-  const params = useParams();
-  const jobId = params.jobId as string;
+  const params = useParams<{ jobId: string }>();
+  const jobId = params.jobId;
 
   const [job, setJob] = useState<Job | null>(null);
+  const [studentProfile, setStudentProfile] =
+    useState<StudentProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [applying, setApplying] = useState(false);
   const [applied, setApplied] = useState(false);
   const [message, setMessage] = useState("");
 
-  const supabase = createClient();
+  const [supabase] = useState(createClient);
 
   useEffect(() => {
-    fetchJob();
-    checkApplication();
-  }, [jobId]);
+    async function loadJobPage() {
+      setLoading(true);
 
-  async function fetchJob() {
-    setLoading(true);
+      const [
+        { data: jobData, error: jobError },
+        {
+          data: { user },
+        },
+      ] = await Promise.all([
+        supabase
+          .from("jobs")
+          .select("*")
+          .eq("id", jobId)
+          .eq("status", "active")
+          .single(),
+        supabase.auth.getUser(),
+      ]);
 
-    const { data, error } = await supabase
-      .from("jobs")
-      .select("*")
-      .eq("id", jobId)
-      .eq("status", "active")
-      .single();
+      if (jobError) {
+        console.error(jobError);
+        setJob(null);
+      } else {
+        setJob(jobData);
+      }
 
-    if (error) {
-      console.error(error);
-      setJob(null);
-    } else {
-      setJob(data);
+      if (user) {
+        const [applicationResult, profileResult] = await Promise.all([
+          supabase
+            .from("applications")
+            .select("id")
+            .eq("job_id", jobId)
+            .eq("student_id", user.id)
+            .maybeSingle(),
+          supabase
+            .from("student_profiles")
+            .select("skills, cgpa")
+            .eq("id", user.id)
+            .maybeSingle(),
+        ]);
+
+        if (applicationResult.error) {
+          console.error(applicationResult.error);
+        } else {
+          setApplied(Boolean(applicationResult.data));
+        }
+
+        if (profileResult.error) {
+          console.error(profileResult.error);
+        } else {
+          setStudentProfile(profileResult.data);
+        }
+      }
+
+      setLoading(false);
     }
 
-    setLoading(false);
-  }
-
-  async function checkApplication() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return;
-    }
-
-    const { data, error } = await supabase
-      .from("applications")
-      .select("id")
-      .eq("job_id", jobId)
-      .eq("student_id", user.id)
-      .maybeSingle();
-
-    if (error) {
-      console.error(error);
-      return;
-    }
-
-    if (data) {
-      setApplied(true);
-    }
-  }
+    void loadJobPage();
+  }, [jobId, supabase]);
 
   async function handleApply() {
     setApplying(true);
@@ -137,16 +155,18 @@ export default function JobDetailsPage() {
             This job may have been closed or removed.
           </p>
 
-          <a
+          <Link
             href="/student/jobs"
             className="mt-6 inline-block rounded-lg bg-black px-5 py-3 font-semibold text-white"
           >
             ← Back to Jobs
-          </a>
+          </Link>
         </div>
       </main>
     );
   }
+
+  const match = studentProfile ? calculateJobMatch(job, studentProfile) : null;
 
   return (
     <main className="min-h-screen bg-gray-50">
@@ -155,12 +175,12 @@ export default function JobDetailsPage() {
         <div className="mx-auto flex max-w-5xl items-center justify-between">
           <h1 className="text-2xl font-bold text-gray-900">CampusBridge</h1>
 
-          <a
+          <Link
             href="/student/jobs"
             className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50"
           >
             ← Find Jobs
-          </a>
+          </Link>
         </div>
       </header>
 
@@ -217,6 +237,80 @@ export default function JobDetailsPage() {
               </span>
             ))}
           </div>
+        </div>
+
+        {/* Your Match */}
+        <div className="mt-6 rounded-2xl bg-white p-8 shadow-sm">
+          <h3 className="text-xl font-bold text-gray-900">Your Match</h3>
+
+          {!match ? (
+            <p className="mt-3 text-gray-600">
+              Complete your profile with skills and CGPA to see your match for
+              this job.
+            </p>
+          ) : (
+            <div className="mt-4 space-y-5 text-sm text-gray-600">
+              <div>
+                <p className="text-2xl font-bold text-gray-900">
+                  {match.score === null ? "Match unavailable" : `${match.score}% Match`}
+                </p>
+                {match.score === null && (
+                  <p className="mt-1">
+                    This job has no requirements that can be scored yet.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <p className="font-semibold text-gray-900">Skills</p>
+                {match.totalRequiredSkills === 0 ? (
+                  <p className="mt-1">This job has no required skills.</p>
+                ) : (
+                  <>
+                    <p className="mt-1">
+                      {match.matchedSkills.length}/{match.totalRequiredSkills} skills matched
+                    </p>
+
+                    {match.matchedSkills.length > 0 && (
+                      <p className="mt-1">
+                        <strong>Matched:</strong> {match.matchedSkills.join(", ")}
+                      </p>
+                    )}
+
+                    {match.missingSkills.length > 0 && (
+                      <p className="mt-1">
+                        <strong>Missing:</strong> {match.missingSkills.join(", ")}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div>
+                <p className="font-semibold text-gray-900">CGPA</p>
+                {match.cgpaStatus === "not_applicable" && (
+                  <p className="mt-1">
+                    This job has no minimum CGPA requirement.
+                  </p>
+                )}
+                {match.cgpaStatus === "cannot_evaluate" && (
+                  <p className="mt-1">
+                    Add your CGPA to your profile to check this requirement.
+                  </p>
+                )}
+                {match.cgpaStatus === "met" && (
+                  <p className="mt-1">
+                    CGPA requirement met (minimum {job.minimum_cgpa}).
+                  </p>
+                )}
+                {match.cgpaStatus === "not_met" && (
+                  <p className="mt-1">
+                    CGPA requirement not met (minimum {job.minimum_cgpa}).
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Deadline */}

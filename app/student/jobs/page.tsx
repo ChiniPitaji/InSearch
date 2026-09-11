@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { calculateJobMatch } from "@/lib/matching";
 
 type Job = {
   id: string;
@@ -18,8 +19,16 @@ type Job = {
   created_at: string;
 };
 
+type StudentProfile = {
+  skills: string[] | null;
+  cgpa: number | null;
+};
+
 export default function FindJobsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [studentProfile, setStudentProfile] =
+    useState<StudentProfile | null>(null);
+  const [studentId, setStudentId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [search, setSearch] = useState("");
@@ -27,30 +36,55 @@ export default function FindJobsPage() {
   const [location, setLocation] = useState("");
   const [skill, setSkill] = useState("");
 
-  const supabase = createClient();
+  const [supabase] = useState(createClient);
 
   useEffect(() => {
-    fetchJobs();
-  }, []);
+    async function loadJobsAndProfile() {
+      setLoading(true);
 
-  async function fetchJobs() {
-    setLoading(true);
+      const [
+        { data: jobsData, error: jobsError },
+        {
+          data: { user },
+        },
+      ] = await Promise.all([
+        supabase
+          .from("jobs")
+          .select("*")
+          .eq("status", "active")
+          .order("created_at", { ascending: false }),
+        supabase.auth.getUser(),
+      ]);
 
-    const { data, error } = await supabase
-      .from("jobs")
-      .select("*")
-      .eq("status", "active")
-      .order("created_at", { ascending: false });
+      if (jobsError) {
+        console.error(jobsError);
+        setJobs([]);
+      } else {
+        setJobs(jobsData || []);
+      }
 
-    if (error) {
-      console.error(error);
-      setJobs([]);
-    } else {
-      setJobs(data || []);
+      if (user) {
+        setStudentId(user.id);
+
+        const { data: profileData, error: profileError } = await supabase
+          .from("student_profiles")
+          .select("skills, cgpa")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        if (profileError) {
+          console.error(profileError);
+          setStudentProfile(null);
+        } else {
+          setStudentProfile(profileData);
+        }
+      }
+
+      setLoading(false);
     }
 
-    setLoading(false);
-  }
+    void loadJobsAndProfile();
+  }, [supabase]);
 
   const filteredJobs = jobs.filter((job) => {
     const searchText = search.toLowerCase().trim();
@@ -182,6 +216,12 @@ export default function FindJobsPage() {
             </span>
           </div>
 
+          {studentId && !studentProfile && !loading && (
+            <div className="mb-4 rounded-lg bg-gray-100 p-4 text-sm text-gray-700">
+              Complete your profile to see match scores for each job.
+            </div>
+          )}
+
           {/* Loading */}
           {loading ? (
             <div className="rounded-2xl bg-white p-8 text-center shadow-sm">
@@ -201,11 +241,16 @@ export default function FindJobsPage() {
           ) : (
             /* Job Cards */
             <div className="space-y-5">
-              {filteredJobs.map((job) => (
-                <div
-                  key={job.id}
-                  className="rounded-2xl bg-white p-6 shadow-sm transition hover:shadow-md"
-                >
+              {filteredJobs.map((job) => {
+                const match = studentProfile
+                  ? calculateJobMatch(job, studentProfile)
+                  : null;
+
+                return (
+                  <div
+                    key={job.id}
+                    className="rounded-2xl bg-white p-6 shadow-sm transition hover:shadow-md"
+                  >
                   {/* Job Title + Type */}
                   <div className="flex flex-col justify-between gap-4 md:flex-row">
                     <div>
@@ -218,9 +263,23 @@ export default function FindJobsPage() {
                       </p>
                     </div>
 
-                    <span className="h-fit rounded-full bg-gray-100 px-3 py-1 text-sm font-medium capitalize">
-                      {job.job_type}
-                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {match?.score !== null && match && (
+                        <span className="h-fit rounded-full bg-green-100 px-3 py-1 text-sm font-semibold text-green-700">
+                          {match.score}% Match
+                        </span>
+                      )}
+
+                      {match?.score === null && match && (
+                        <span className="h-fit rounded-full bg-gray-100 px-3 py-1 text-sm font-medium text-gray-700">
+                          Match unavailable
+                        </span>
+                      )}
+
+                      <span className="h-fit rounded-full bg-gray-100 px-3 py-1 text-sm font-medium capitalize">
+                        {job.job_type}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Job Information */}
@@ -262,8 +321,9 @@ export default function FindJobsPage() {
                       View Job
                     </a>
                   </div>
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

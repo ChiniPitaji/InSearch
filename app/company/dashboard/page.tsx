@@ -390,6 +390,13 @@ export default function CompanyDashboard() {
             >
               Candidates
             </a>
+
+            <a
+              href="/company/candidates"
+              className="block rounded-lg px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-100"
+            >
+              Find Candidates
+            </a>
           </nav>
         </aside>
 

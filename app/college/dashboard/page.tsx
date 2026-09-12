@@ -17,7 +17,10 @@ type Student = {
 };
 
 type StudentRow = Omit<Student, "full_name"> & {
-  profiles: { full_name: string | null } | { full_name: string | null }[];
+  profiles:
+    | { full_name: string | null }
+    | { full_name: string | null }[]
+    | null;
 };
 
 type SkillCount = {
@@ -96,7 +99,7 @@ export default function CollegeDashboard() {
       const { data: studentData, error: studentError } = await supabase
         .from("student_profiles")
         .select(
-          "id, degree, branch, cgpa, graduation_year, location, skills, open_to_recruiters, profiles!inner(full_name)"
+          "id, degree, branch, cgpa, graduation_year, location, skills, open_to_recruiters, profiles(full_name)"
         )
         .eq("college_id", collegeAdmin.college_id)
         .order("graduation_year", { ascending: true });
